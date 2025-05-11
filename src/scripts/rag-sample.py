@@ -1,5 +1,6 @@
 import os
 import sys
+import glob
 from typing import Dict, Any, Optional, List
 from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
@@ -43,24 +44,32 @@ class SimpleEmbeddings(Embeddings):
         """Embed a query."""
         return self._get_simple_embedding(text)
 
-def load_readme(readme_path: str) -> Optional[str]:
-    try:
-        print(readme_path)
-        with open(readme_path, "r") as file:
-            content = file.read()
-        return content
-    except FileNotFoundError:
-        print(f"sample file not found at {readme_path}")
-        return None
+def load_markdown_files(resource_dir: str) -> List[Document]:
+    """Load all markdown files from the resources directory."""
+    markdown_files = glob.glob(os.path.join(resource_dir, "*.md"))
+    documents = []
+    
+    for file_path in markdown_files:
+        try:
+            with open(file_path, "r") as file:
+                content = file.read()
+                file_name = os.path.basename(file_path)
+                doc = Document(page_content=content, metadata={"source": file_name})
+                documents.append(doc)
+                print(f"Loaded {file_name}")
+        except Exception as e:
+            print(f"Error loading {file_path}: {e}")
+    
+    return documents
 
-def create_vector_store(text_content: str) -> FAISS:
+def create_vector_store(documents: List[Document]) -> FAISS:
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
     
-    docs = [Document(page_content=text_content)]
-    chunks = text_splitter.split_documents(docs)
+    chunks = text_splitter.split_documents(documents)
+    print(f"Split documents into {len(chunks)} chunks")
     
     try:
         print(f"Trying to use Ollama embeddings with {EMBEDDING_MODEL_NAME}...")
@@ -88,7 +97,7 @@ def create_rag_chain(vector_store: FAISS) -> Dict[str, Any]:
     # Create retriever
     retriever = vector_store.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": 3}
+        search_kwargs={"k": 5}  # Increased from 3 to 5 to get more context from diverse documents
     )
     
     # Create LLM using local Ollama with Gemma model
@@ -102,7 +111,7 @@ def create_rag_chain(vector_store: FAISS) -> Dict[str, Any]:
     
     # Create prompt template
     template = """
-    You are an assistant that answers questions based on the provided context.
+    You are an assistant that answers questions based on the provided context from multiple documents.
     
     Context:
     {context}
@@ -110,6 +119,8 @@ def create_rag_chain(vector_store: FAISS) -> Dict[str, Any]:
     Question: {question}
     
     Answer the question based only on the provided context. If you cannot answer the question from the context, say "I don't have enough information to answer this question."
+    
+    If relevant, mention which document(s) in the context contain information used for your answer.
     """
     
     prompt = ChatPromptTemplate.from_template(template)
@@ -125,19 +136,27 @@ def create_rag_chain(vector_store: FAISS) -> Dict[str, Any]:
     return rag_chain
 
 def main() -> None:
-    baseFolder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    readme_content = load_readme(f'{os.path.join(baseFolder, "resources", "sample.md")}')
-
-    print(readme_content)
-
+    base_folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    resources_dir = os.path.join(base_folder, "resources")
+    
+    print(f"Loading documents from {resources_dir}...")
+    documents = load_markdown_files(resources_dir)
+    
+    if not documents:
+        print("No documents found. Exiting.")
+        return
+    
     print(f"Creating vector store with embeddings using {EMBEDDING_MODEL_NAME}...")
-    vector_store = create_vector_store(readme_content)
+    vector_store = create_vector_store(documents)
     
     print(f"Creating RAG chain with Ollama LLM using {LLM_MODEL_NAME}...")
     rag_chain = create_rag_chain(vector_store)
     
-    print("RAG system initialized with sample content")
-    response = rag_chain.invoke("What is Bioprinted Infrastructure relative to ?")
+    print(f"RAG system initialized with {len(documents)} documents")
+    
+    # Updated to a more comprehensive query that could span multiple documents
+    response = rag_chain.invoke("Describe the different applications of bioprinting technology across various fields")
+    
     print("\nResponse:")
     print(response)
 

@@ -14,7 +14,7 @@ python --version
 ## Python3.11 virtual environment creation (Linux)
 ```bash
 python3.11 -m venv py_311
-source py_311/bin/activate
+source ./py_311/bin/activate
 python3.11 --version
 ```
 
