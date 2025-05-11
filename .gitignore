@@ -351,4 +351,5 @@ healthchecksdb
 *.npy
 
 # Excluded files
+faiss_index/
 py_311/
